@@ -1,5 +1,3 @@
-import { NestFactory } from '@nestjs/core';
-import { Logger } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { setupSwagger } from './config/swagger.config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -7,40 +5,43 @@ import { MongoExceptionFilter } from './common/filters/mongo-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
+import { LoggerService } from './common/logger/logger.service';
 
 async function bootstrap() {
-  const logger = new Logger('Bootstrap');
-
+  const NestFactory = (await import('@nestjs/core')).NestFactory;
   const app = await NestFactory.create(AppModule);
 
-  // CORS
+  const logger = app.get(LoggerService);
+  app.useLogger(logger);
+
   app.enableCors({
     origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
     credentials: true,
   });
 
-  // Global Prefix
   app.setGlobalPrefix('api/v1');
 
-  // Global Filters
-  app.useGlobalFilters(new HttpExceptionFilter(), new MongoExceptionFilter());
+  // Global Filters - resolved from DI
+  app.useGlobalFilters(
+    app.get(HttpExceptionFilter),
+    app.get(MongoExceptionFilter),
+  );
 
   // Global Interceptors
   app.useGlobalInterceptors(
-    new LoggingInterceptor(),
+    new LoggingInterceptor(logger),
     new TransformInterceptor(),
     new TimeoutInterceptor(),
   );
 
-  // Swagger Documentation
   setupSwagger(app);
 
   const port = process.env.PORT || 3000;
   await app.listen(port);
 
-  logger.log(`Application is running on: http://localhost:${port}`);
-  logger.log(`Swagger docs: http://localhost:${port}/api/docs`);
+  logger.log(`Application is running on: http://localhost:${port}`, 'Bootstrap');
+  logger.log(`Swagger docs: http://localhost:${port}/api/docs`, 'Bootstrap');
 }
 
 bootstrap();

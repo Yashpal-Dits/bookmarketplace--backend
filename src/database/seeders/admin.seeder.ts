@@ -1,15 +1,17 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User } from '../../modules/users/schemas/user.schema';
 import { Role } from '../../common/constants/roles.constant';
 import { HashHelper } from '../../common/helpers/hash.helper';
+import { LoggerService } from '../../common/logger/logger.service';
 
 @Injectable()
 export class AdminSeeder {
-  private readonly logger = new Logger(AdminSeeder.name);
-
-  constructor(@InjectModel(User.name) private readonly userModel: Model<User>) {}
+  constructor(
+    @InjectModel(User.name) private readonly userModel: Model<User>,
+    private readonly logger: LoggerService,
+  ) {}
 
   async seed(): Promise<void> {
     const adminEmail = 'admin@bookmarketplace.com';
@@ -17,7 +19,7 @@ export class AdminSeeder {
     const existingAdmin = await this.userModel.findOne({ email: adminEmail });
 
     if (existingAdmin) {
-      this.logger.log('Admin user already exists, skipping seed');
+      this.logger.log('Admin user already exists, skipping seed', 'Seeder');
       return;
     }
 
@@ -31,8 +33,6 @@ export class AdminSeeder {
       isVerified: true,
     });
 
-    this.logger.log('Admin user seeded successfully');
-    this.logger.log(`Email: ${adminEmail}`);
-    this.logger.log('Password: Admin@123');
+    this.logger.log('Admin user seeded successfully', 'Seeder');
   }
 }

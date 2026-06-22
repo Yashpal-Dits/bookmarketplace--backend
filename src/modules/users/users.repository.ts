@@ -41,4 +41,28 @@ export class UsersRepository {
   async countByEmail(email: string): Promise<number> {
     return this.userModel.countDocuments({ email }).exec();
   }
+
+  async updateOtp(id: string, otp: string, otpExpiresAt: Date): Promise<User | null> {
+    return this.userModel
+      .findByIdAndUpdate(id, { otp, otpExpiresAt }, { new: true })
+      .exec();
+  }
+
+  async clearOtp(id: string): Promise<User | null> {
+    return this.userModel
+      .findByIdAndUpdate(id, { $unset: { otp: '', otpExpiresAt: '' } }, { new: true })
+      .exec();
+  }
+
+  async updateVerification(id: string, isVerified: boolean): Promise<User | null> {
+    return this.userModel
+      .findByIdAndUpdate(id, { isVerified }, { new: true })
+      .exec();
+  }
+
+  async updatePassword(id: string, hashedPassword: string): Promise<User | null> {
+    return this.userModel
+      .findByIdAndUpdate(id, { password: hashedPassword }, { new: true })
+      .exec();
+  }
 }

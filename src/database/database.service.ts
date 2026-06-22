@@ -1,19 +1,22 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection } from 'mongoose';
+import { LoggerService } from '../common/logger/logger.service';
 
 @Injectable()
 export class DatabaseService implements OnModuleInit {
-  private readonly logger = new Logger(DatabaseService.name);
-
-  constructor(@InjectConnection() private readonly connection: Connection) {}
+  constructor(
+    @InjectConnection() private readonly connection: Connection,
+    private readonly logger: LoggerService,
+  ) {}
 
   async onModuleInit(): Promise<void> {
     try {
       await this.connection.asPromise();
-      this.logger.log('Database connected successfully');
+      this.logger.log('Database connected successfully', 'Database');
     } catch (error) {
-      this.logger.error('Database connection failed', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Database connection failed: ${errorMessage}`, undefined, 'Database');
       throw error;
     }
   }
@@ -30,13 +33,14 @@ export class DatabaseService implements OnModuleInit {
     try {
       const db = this.connection.db;
       if (!db) {
-        this.logger.warn('Database not initialized yet');
+        this.logger.warn('Database not initialized yet', 'Database');
         return false;
       }
       await db.admin().ping();
       return true;
     } catch (error) {
-      this.logger.error('Database ping failed', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Database ping failed: ${errorMessage}`, undefined, 'Database');
       return false;
     }
   }

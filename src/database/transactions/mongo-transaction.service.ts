@@ -1,12 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import { Connection, ClientSession } from 'mongoose';
+import { LoggerService } from '../../common/logger/logger.service';
 
 @Injectable()
 export class MongoTransactionService {
-  private readonly logger = new Logger(MongoTransactionService.name);
-
-  constructor(@InjectConnection() private readonly connection: Connection) {}
+  constructor(
+    @InjectConnection() private readonly connection: Connection,
+    private readonly logger: LoggerService,
+  ) {}
 
   async startTransaction(): Promise<ClientSession> {
     const session = await this.connection.startSession();
@@ -37,7 +39,8 @@ export class MongoTransactionService {
       return result;
     } catch (error) {
       await this.abortTransaction(session);
-      this.logger.error('Transaction failed, rolled back', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Transaction failed, rolled back: ${errorMessage}`, undefined, 'Transaction');
       throw error;
     }
   }

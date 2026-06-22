@@ -25,6 +25,10 @@ export class AuthRepository {
     return this.userModel.findById(id).exec();
   }
 
+  async findByIdWithPassword(id: string): Promise<User | null> {
+    return this.userModel.findById(id).select('+password').exec();
+  }
+
   async countByEmail(email: string): Promise<number> {
     return this.userModel.countDocuments({ email }).exec();
   }
