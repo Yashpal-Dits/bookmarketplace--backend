@@ -3,8 +3,7 @@ import {
   Injectable,
   BadRequestException,
 } from '@nestjs/common';
-import  type { ObjectSchema } from 'joi';
-import { VALIDATION_MESSAGES } from '../constants/messages.constant';
+import type { ObjectSchema } from 'joi';
 
 @Injectable()
 export class JoiValidationPipe implements PipeTransform {
@@ -20,7 +19,7 @@ export class JoiValidationPipe implements PipeTransform {
       const messages = error.details.map((detail) => detail.message);
       throw new BadRequestException({
         success: false,
-        message: VALIDATION_MESSAGES.VALIDATION_FAILED,
+        message: 'Validation failed',
         errors: messages,
         statusCode: 400,
       });

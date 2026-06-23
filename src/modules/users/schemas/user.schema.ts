@@ -1,11 +1,14 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
-import { Role } from '../../../common/constants/roles.constant';
+import { Role } from '../../../common/enums/role.enum';
 
 @Schema({ timestamps: true })
 export class User extends Document {
-  @Prop({ required: true, trim: true, minlength: 2, maxlength: 50 })
-  name!: string;
+  @Prop({ required: true, trim: true })
+  firstName!: string;
+
+  @Prop({ trim: true })
+  lastName?: string;
 
   @Prop({ required: true, unique: true, lowercase: true, trim: true })
   email!: string;
@@ -13,11 +16,14 @@ export class User extends Document {
   @Prop({ required: true, select: false })
   password!: string;
 
-  @Prop({ type: String, enum: Role, default: Role.USER })
+  @Prop({ type: String, enum: Role, required: true })
   role!: Role;
 
-  @Prop({ default: false })
-  isVerified!: boolean;
+  @Prop()
+  mobileNumber?: string;
+
+  @Prop()
+  profileImage?: string;
 
   @Prop()
   otp?: string;
@@ -27,3 +33,5 @@ export class User extends Document {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
+UserSchema.index({ role: 1 });

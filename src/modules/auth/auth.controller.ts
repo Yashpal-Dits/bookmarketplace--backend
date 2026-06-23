@@ -1,15 +1,10 @@
 import { Controller, Post, Body, UsePipes, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto } from './dto/register.dto';
-import { LoginDto } from './dto/login.dto';
-import { ForgotPasswordDto } from './dto/forgot-password.dto';
-import { ResetPasswordDto } from './dto/reset-password.dto';
-import { VerifyOtpDto } from './dto/verify-otp.dto';
-import { ChangePasswordDto } from './dto/change-password.dto';
-import { SendOtpDto } from './dto/send-otp.dto';
+import { RegisterCustomerDto, RegisterSellerDto,LoginDto,  ForgotPasswordDto, ResetPasswordDto, VerifyOtpDto,  ChangePasswordDto,  SendOtpDto} from './dto/index';
 import { JoiValidationPipe } from '../../common/pipes/joi-validation.pipe';
-import { registerSchema } from './validation/register.schema';
+import { registerCustomerSchema } from './validation/register-customer.schema';
+import { registerSellerSchema } from './validation/register-seller.schema';
 import { loginSchema } from './validation/login.schema';
 import { forgotPasswordSchema } from './validation/forgot-password.schema';
 import { resetPasswordSchema } from './validation/reset-password.schema';
@@ -24,10 +19,16 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('register')
-  @UsePipes(new JoiValidationPipe(registerSchema))
-  async register(@Body() registerDto: RegisterDto) {
-    return this.authService.register(registerDto);
+  @Post('register/customer')
+  @UsePipes(new JoiValidationPipe(registerCustomerSchema))
+  async registerCustomer(@Body() registerDto: RegisterCustomerDto) {
+    return this.authService.registerCustomer(registerDto);
+  }
+
+  @Post('register/seller')
+  @UsePipes(new JoiValidationPipe(registerSellerSchema))
+  async registerSeller(@Body() registerDto: RegisterSellerDto) {
+    return this.authService.registerSeller(registerDto);
   }
 
   @Post('login')

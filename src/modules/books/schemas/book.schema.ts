@@ -1,55 +1,51 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
+import { BookStatus } from '../../../common/enums/book-status.enum';
 
 @Schema({ timestamps: true })
 export class Book extends Document {
-  @Prop({ required: true, trim: true, index: true })
+  @Prop({ required: true, trim: true })
+  isbn!: string;
+
+  @Prop({ required: true, trim: true })
   title!: string;
 
-  @Prop({ required: true, trim: true, index: true })
+  @Prop({ required: true, trim: true })
   author!: string;
+
+  @Prop({ trim: true })
+  publisher?: string;
 
   @Prop({ required: true })
   description!: string;
 
-  @Prop({ required: true, min: 0 })
-  price!: number;
+  @Prop({ default: '' })
+  coverImage?: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Category', required: true })
-  category!: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'Category' })
+  category?: Types.ObjectId;
 
-  @Prop({ type: [String], default: [] })
-  images!: string[];
+  @Prop({ type: String, enum: BookStatus, default: BookStatus.PENDING })
+  status!: BookStatus;
 
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
-  seller!: Types.ObjectId;
+  @Prop({ type: Types.ObjectId, ref: 'User' })
+  createdBySellerId?: Types.ObjectId;
 
-  @Prop({ default: 0, min: 0 })
-  stock!: number;
+  @Prop({ type: Number, default: 0 })
+  rating?: number;
 
-  @Prop({ default: true })
-  isAvailable!: boolean;
+  @Prop({ type: Number, default: null })
+  minPrice?: number | null;
 
-  @Prop()
-  isbn?: string;
+  @Prop({ type: Number, default: null })
+  mrp?: number | null;
 
-  @Prop()
-  publisher?: string;
-
-  @Prop()
-  publishedYear?: number;
-
-  @Prop()
-  language?: string;
-
-  @Prop()
-  pageCount?: number;
+  @Prop({ type: Number, default: 0 })
+  totalStock?: number;
 }
 
 export const BookSchema = SchemaFactory.createForClass(Book);
-
-// Compound indexes for common queries
+BookSchema.index({ isbn: 1 });
+BookSchema.index({ status: 1 });
+BookSchema.index({ category: 1 });
 BookSchema.index({ title: 'text', author: 'text', description: 'text' });
-BookSchema.index({ seller: 1, isAvailable: 1 });
-BookSchema.index({ category: 1, isAvailable: 1 });
-BookSchema.index({ price: 1 });

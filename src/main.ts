@@ -1,7 +1,6 @@
 import { AppModule } from './app.module';
 import { setupSwagger } from './config/swagger.config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
-import { MongoExceptionFilter } from './common/filters/mongo-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { TimeoutInterceptor } from './common/interceptors/timeout.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
@@ -22,13 +21,9 @@ async function bootstrap() {
 
   app.setGlobalPrefix('api/v1');
 
-  // Global Filters - resolved from DI
-  app.useGlobalFilters(
-    app.get(HttpExceptionFilter),
-    app.get(MongoExceptionFilter),
-  );
+  // Use ONLY one unified exception filter
+  app.useGlobalFilters(app.get(HttpExceptionFilter));
 
-  // Global Interceptors
   app.useGlobalInterceptors(
     new LoggingInterceptor(logger),
     new TransformInterceptor(),
