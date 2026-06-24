@@ -13,7 +13,7 @@ export class SellersService {
     private readonly sellersRepository: SellersRepository,
     private readonly logger: LoggerService,
     @InjectModel(User.name) private readonly userModel: Model<User>,
-  ) {}
+  ) { }
 
   async getProfileByUserId(userId: string) {
     const seller = await this.sellersRepository.findByUserId(userId);
@@ -62,6 +62,35 @@ export class SellersService {
     if (!seller) throw new NotFoundException(ERROR_MESSAGES.SELLER_NOT_FOUND);
     if (seller.status !== SellerStatus.APPROVED) {
       throw new ForbiddenException(ERROR_MESSAGES.SELLER_NOT_APPROVED);
+    }
+  }
+
+  async getSellerStatus(userId: string) {
+    try {
+      const seller = await this.sellersRepository.findByUserId(userId);
+
+      if (!seller) throw new NotFoundException(ERROR_MESSAGES.SELLER_NOT_FOUND);
+
+      const statusMessage: Record<string, string> = {
+        'PENDING': 'Your seller account  is pending admin approval. You will be able to create listing one approved.',
+        'APPROVED': 'Your seller account is approved. yhou can now create listing and manage your books',
+        'REJECTED': 'Your seller application has been rejected. Please contact support for more information.'
+      };
+
+      return {
+        success: true,
+        message: statusMessage[seller.status] || 'Unknow status',
+        data: {
+          _id: seller._id,
+          businessName: seller.businessName,
+          status: seller.status,
+        },
+      };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Get seller status failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      throw error;
     }
   }
 }

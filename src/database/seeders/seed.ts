@@ -15,10 +15,11 @@ async function bootstrap() {
     await adminSeeder.seed();
 
     await app.close();
-    logger.log('Seed completed successfully');
+    logger.log(' Seed completed successfully');
     process.exit(0);
   } catch (error) {
-    logger.error('Seed failed', error);
+    const msg = error instanceof Error ? error.message : 'Unknown error';
+    logger.error(` Seed failed: ${msg}`);
     process.exit(1);
   }
 }

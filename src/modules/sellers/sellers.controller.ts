@@ -11,7 +11,7 @@ import type { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class SellersController {
-  constructor(private readonly sellersService: SellersService) {}
+  constructor(private readonly sellersService: SellersService) { }
 
   @Get('profile')
   @ApiOperation({ summary: 'Get seller profile' })
@@ -26,5 +26,11 @@ export class SellersController {
     @Body() data: UpdateSellerDto,
   ) {
     return this.sellersService.updateProfile(user.sub, data);
+  }
+
+  @Get('status')
+  @ApiOperation({ summary: 'Check seller approval status' })
+  async getSellerStatus(@CurrentUser() user: JwtPayload) {
+    return this.sellersService.getSellerStatus(user.sub);
   }
 }

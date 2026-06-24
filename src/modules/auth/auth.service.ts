@@ -1,17 +1,7 @@
-import {
-  Injectable,
-  ConflictException,
-  UnauthorizedException,
-  BadRequestException,
-  NotFoundException,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { AuthRepository } from './auth.repository';
-import { RegisterCustomerDto, RegisterSellerDto,LoginDto,ForgotPasswordDto, ResetPasswordDto,  VerifyOtpDto,ChangePasswordDto, SendOtpDto   } from './dto/index';
 import { HashHelper } from '../../common/helpers/hash.helper';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../common/constants/messages.constant';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
@@ -23,6 +13,25 @@ import { SellerStatus } from '../../common/enums/seller-status.enum';
 import { User } from '../users/schemas/user.schema';
 import { Customer } from '../customers/schemas/customer.schema';
 import { Seller } from '../sellers/schemas/seller.schema';
+import {
+  Injectable,
+  ConflictException,
+  UnauthorizedException,
+  BadRequestException,
+  NotFoundException,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
+import {
+  RegisterCustomerDto,
+  RegisterSellerDto,
+  LoginDto,
+  ForgotPasswordDto,
+  ResetPasswordDto,
+  VerifyOtpDto,
+  ChangePasswordDto,
+  SendOtpDto
+} from './dto/index';
 
 @Injectable()
 export class AuthService {
@@ -36,7 +45,7 @@ export class AuthService {
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Customer.name) private readonly customerModel: Model<Customer>,
     @InjectModel(Seller.name) private readonly sellerModel: Model<Seller>,
-  ) {}
+  ) { }
 
   async registerCustomer(registerDto: RegisterCustomerDto) {
     try {
