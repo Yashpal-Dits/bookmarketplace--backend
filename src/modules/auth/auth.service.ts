@@ -13,6 +13,7 @@ import { SellerStatus } from '../../common/enums/seller-status.enum';
 import { User } from '../users/schemas/user.schema';
 import { Customer } from '../customers/schemas/customer.schema';
 import { Seller } from '../sellers/schemas/seller.schema';
+import { Cart } from '../cart/schemas/cart.schema';
 import {
   Injectable,
   ConflictException,
@@ -45,20 +46,18 @@ export class AuthService {
     @InjectModel(User.name) private readonly userModel: Model<User>,
     @InjectModel(Customer.name) private readonly customerModel: Model<Customer>,
     @InjectModel(Seller.name) private readonly sellerModel: Model<Seller>,
+    @InjectModel(Cart.name) private readonly cartModel: Model<Cart>,
   ) { }
 
-  async registerCustomer(registerDto: RegisterCustomerDto) {
+async registerCustomer(registerDto: RegisterCustomerDto) {
     try {
-      // Check if email already exists
       const userCount = await this.authRepository.countByEmail(registerDto.email);
       if (userCount > 0) {
         throw new ConflictException(ERROR_MESSAGES.EMAIL_ALREADY_EXISTS);
       }
 
-      // Hash password
       const hashedPassword = await HashHelper.hash(registerDto.password);
 
-      // Create user
       const user = await this.authRepository.create({
         firstName: registerDto.firstName,
         lastName: registerDto.lastName || '',
@@ -68,7 +67,6 @@ export class AuthService {
         mobileNumber: registerDto.mobileNumber || '',
       });
 
-      // Create customer profile with PENDING status
       const customer = await this.customerModel.create({
         userId: user._id,
         firstName: registerDto.firstName,
@@ -78,6 +76,9 @@ export class AuthService {
         status: CustomerStatus.PENDING,
       });
 
+      // Create cart for customer
+      await this.cartModel.create({ customerId: customer._id });
+
       // Generate OTP and send email
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
@@ -85,7 +86,6 @@ export class AuthService {
       await this.userModel.findByIdAndUpdate(user._id, { otp, otpExpiresAt }).exec();
       await this.emailService.sendOtpEmail(user.email, otp);
 
-      // Generate JWT token
       const token = this.generateToken(user);
 
       this.logger.log(`Customer registered (pending email verification): ${user.email}`, 'Auth');
@@ -112,9 +112,8 @@ export class AuthService {
         },
       };
     } catch (error) {
-      if (error instanceof ConflictException) {
-        throw error;
-      }
+      if (error instanceof ConflictException) throw error;
+
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Customer registration failed: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
       throw new InternalServerErrorException(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);

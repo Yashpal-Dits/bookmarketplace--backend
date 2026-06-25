@@ -19,6 +19,7 @@ import { LoggerMiddleware } from './common/middleware/logger.middleware';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { MongoExceptionFilter } from './common/filters/mongo-exception.filter';
 import { AdminSeeder } from './database/seeders/admin.seeder';
+import { CartModule } from './modules/cart/cart.module';
 
 @Module({
   imports: [
@@ -34,7 +35,8 @@ import { AdminSeeder } from './database/seeders/admin.seeder';
     CategoriesModule,
     BooksModule,
     ListingsModule,
-     AdminModule,
+    AdminModule,
+    CartModule
     
   ],
   providers: [
