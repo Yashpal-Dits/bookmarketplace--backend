@@ -16,4 +16,3 @@ export class CartItem extends Document {
 }
 
 export const CartItemSchema = SchemaFactory.createForClass(CartItem);
-CartItemSchema.index({cartId:1, listingId: 1}, {unique: true});

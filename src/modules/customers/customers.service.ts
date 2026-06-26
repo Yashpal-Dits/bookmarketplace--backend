@@ -1,57 +1,54 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { CustomersRepository } from './customers.repository';
-import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../common/constants/messages.constant';
-import { LoggerService } from '../../common/logger/logger.service';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { CustomersRepository } from './customers.repository';
 import { User } from '../users/schemas/user.schema';
-import { Role } from '../../common/enums/role.enum';
+import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../common/constants/messages.constant';
+import type { ICustomer, UpdateCustomerPayload } from './interfaces/customer.interface';
 
 @Injectable()
 export class CustomersService {
+  private readonly logger = new Logger(CustomersService.name);
+
   constructor(
     private readonly customersRepository: CustomersRepository,
-    private readonly logger: LoggerService,
     @InjectModel(User.name) private readonly userModel: Model<User>,
   ) {}
 
   async getProfileByUserId(userId: string) {
-    const customer = await this.customersRepository.findByUserId(userId);
-    if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
-
-    return { success: true, message: SUCCESS_MESSAGES.CUSTOMER_FETCHED, data: customer };
+    try {
+      const customer = await this.customersRepository.findByUserId(userId);
+      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
+      return { success: true, message: SUCCESS_MESSAGES.CUSTOMER_FETCHED, data: customer };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      this.logger.error(`Get customer profile failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      throw error;
+    }
   }
 
-  async getProfile(customerId: string) {
-    const customer = await this.customersRepository.findById(customerId);
-    if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
+  async updateProfile(userId: string, payload: UpdateCustomerPayload) {
+    try {
+      const customer = await this.customersRepository.findByUserId(userId);
+      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
 
-    return { success: true, message: SUCCESS_MESSAGES.CUSTOMER_FETCHED, data: customer };
-  }
+      const updated = await this.customersRepository.update(customer._id.toString(), payload);
 
-  async updateProfile(userId: string, data: any) {
-    const customer = await this.customersRepository.findByUserId(userId);
-    if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
+      await this.userModel.findByIdAndUpdate(userId, {
+        firstName: payload.firstName,
+        lastName: payload.lastName,
+        profileImage: payload.profileImage,
+      }).exec();
 
-    const updatedCustomer = await this.customersRepository.update(customer._id.toString(), {
-      firstName: data.firstName,
-      lastName: data.lastName,
-      mobileNumber: data.mobileNumber,
-      addressLine: data.addressLine,
-      city: data.city,
-      state: data.state,
-      pincode: data.pincode,
-      profileImage: data.profileImage,
-    });
+      this.logger.log(`Customer profile updated: ${customer.email}`, 'Customers');
 
-    await this.userModel.findByIdAndUpdate(userId, {
-      firstName: data.firstName,
-      lastName: data.lastName,
-      profileImage: data.profileImage,
-    });
-
-    this.logger.log(`Customer profile updated: ${customer.email}`, 'Customers');
-
-    return { success: true, message: SUCCESS_MESSAGES.CUSTOMER_UPDATED, data: updatedCustomer };
+      return { success: true, message: SUCCESS_MESSAGES.CUSTOMER_UPDATED, data: updated };
+    } catch (error) {
+      if (error instanceof NotFoundException) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      this.logger.error(`Update customer failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      throw error;
+    }
   }
 }

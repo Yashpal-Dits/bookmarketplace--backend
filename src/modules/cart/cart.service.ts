@@ -1,15 +1,13 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { CartRepository } from './cart.repository';
-import { Cart } from './schemas/cart.schema';
 import { Customer } from '../customers/schemas/customer.schema';
 import { Listing } from '../listings/schemas/listing.schema';
 import { Book } from '../books/schemas/book.schema';
 import { Seller } from '../sellers/schemas/seller.schema';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../common/constants/messages.constant';
-import { CartItemResponse } from './interfaces/cart-response.interface';
-
+import type { AddToCartPayload, UpdateCartItemPayload, CartItemResponse } from './interfaces/cart.interface';
 
 @Injectable()
 export class CartService {
@@ -23,16 +21,12 @@ export class CartService {
     @InjectModel(Seller.name) private readonly sellerModel: Model<Seller>,
   ) {}
 
-  private async getOrCreateCart(customerId: string): Promise<Cart> {
+  private async getOrCreateCart(customerId: string) {
     let cart = await this.cartRepository.findCartByCustomer(customerId);
-    if (!cart) {
-      cart = await this.cartRepository.createCart(customerId);
-      this.logger.log(`New cart created for customer: ${customerId}`);
-    }
+    if (!cart) cart = await this.cartRepository.createCart(customerId);
     return cart;
   }
 
-  // GET /customer/cart
   async getCart(userId: string) {
     try {
       const customer = await this.customerModel.findOne({ userId }).exec();
@@ -41,46 +35,25 @@ export class CartService {
       const cart = await this.getOrCreateCart(customer._id.toString());
       const items = await this.cartRepository.findCartItems(cart._id.toString());
 
-      // Enrich cart items with listing, book, seller details
-      const detailedItems: CartItemResponse[] = [];
+      const data: CartItemResponse[] = [];
       for (const item of items) {
         const listing = await this.listingModel.findById(item.listingId).exec();
         if (!listing) continue;
 
-        const book = await this.bookModel.findById(listing.bookId).populate('category', 'name').exec();
+        const book = await this.bookModel.findById(listing.bookId).exec();
         const seller = await this.sellerModel.findById(listing.sellerId).exec();
 
-        detailedItems.push({
-          _id: item._id,
-          listingId: item.listingId,
+        data.push({
+          _id: item._id.toString(),
+          listingId: item.listingId.toString(),
           quantity: item.quantity,
-          listing: {
-            price: listing.price,
-            mrp: listing.mrp,
-            stock: listing.stock,
-            isActive: listing.isActive,
-          },
-          book: book ? {
-            _id: book._id,
-            title: book.title,
-            author: book.author,
-            coverImage: book.coverImage,
-            isbn: book.isbn,
-            category: (book as any).category,
-          } : null,
-          seller: seller ? {
-            _id: seller._id,
-            businessName: seller.businessName,
-            storeLogo: seller.storeLogo,
-          } : null,
+          listing: { price: listing.price, mrp: listing.mrp, stock: listing.stock, isActive: listing.isActive },
+          book: book ? { _id: book._id.toString(), title: book.title, author: book.author, coverImage: book.coverImage, isbn: book.isbn, category: (book as any).category } : null,
+          seller: seller ? { _id: seller._id.toString(), businessName: seller.businessName, storeLogo: seller.storeLogo } : null,
         });
       }
 
-      return {
-        success: true,
-        message: 'Cart fetched successfully',
-        data: detailedItems,
-      };
+      return { success: true, message: 'Cart fetched successfully', data };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
       const msg = error instanceof Error ? error.message : 'Unknown';
@@ -89,41 +62,34 @@ export class CartService {
     }
   }
 
-  // POST /customer/cart/add
-  async addToCart(userId: string, listingId: string, quantity: number) {
+  async addToCart(userId: string, payload: AddToCartPayload) {
     try {
-      // Validate customer
       const customer = await this.customerModel.findOne({ userId }).exec();
       if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
 
-      // Validate listing
-      const listing = await this.listingModel.findById(listingId).exec();
+      const listing = await this.listingModel.findById(payload.listingId).exec();
       if (!listing) throw new NotFoundException(ERROR_MESSAGES.LISTING_NOT_FOUND);
       if (!listing.isActive) throw new BadRequestException(ERROR_MESSAGES.LISTING_NOT_ACTIVE);
       if (listing.stock <= 0) throw new BadRequestException(ERROR_MESSAGES.LISTING_OUT_OF_STOCK);
 
-      // Get or create cart
       const cart = await this.getOrCreateCart(customer._id.toString());
-
-      // Check if item already in cart
-      const existing = await this.cartRepository.findCartItemByListing(cart._id.toString(), listingId);
-      const requestedTotal = (existing?.quantity || 0) + quantity;
+      const existing = await this.cartRepository.findCartItemByListing(cart._id.toString(), payload.listingId);
+      const requestedTotal = (existing?.quantity || 0) + payload.quantity;
 
       if (requestedTotal > listing.stock) {
-        const msg = existing
-          ? `Only ${listing.stock} in stock — you already have ${existing.quantity} in your cart`
-          : `Only ${listing.stock} left in stock`;
-        throw new BadRequestException(msg);
+        throw new BadRequestException(
+          existing
+            ? `Only ${listing.stock} in stock — you already have ${existing.quantity} in your cart`
+            : `Only ${listing.stock} left in stock`,
+        );
       }
 
       let cartItem;
       if (existing) {
         cartItem = await this.cartRepository.updateQuantity(existing._id.toString(), requestedTotal);
       } else {
-        cartItem = await this.cartRepository.addCartItem(cart._id.toString(), listingId, quantity);
+        cartItem = await this.cartRepository.addCartItem(cart._id.toString(), payload.listingId, payload.quantity);
       }
-
-      this.logger.log(`Item added to cart: ${listingId} x${quantity}`);
 
       return { success: true, message: SUCCESS_MESSAGES.CART_ITEM_ADDED, data: cartItem };
     } catch (error) {
@@ -134,29 +100,23 @@ export class CartService {
     }
   }
 
-  // PATCH /customer/cart/item/:id
-  async updateQuantity(userId: string, itemId: string, quantity: number) {
+  async updateQuantity(userId: string, itemId: string, payload: UpdateCartItemPayload) {
     try {
-      if (quantity < 1) throw new BadRequestException(ERROR_MESSAGES.QUANTITY_MIN);
+      if (payload.quantity < 1) throw new BadRequestException(ERROR_MESSAGES.QUANTITY_MIN);
 
       const customer = await this.customerModel.findOne({ userId }).exec();
       if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
 
       const cart = await this.getOrCreateCart(customer._id.toString());
-
-      // Find item in user's cart
       const items = await this.cartRepository.findCartItems(cart._id.toString());
       const item = items.find(i => i._id.toString() === itemId);
       if (!item) throw new NotFoundException(ERROR_MESSAGES.CART_ITEM_NOT_FOUND);
 
-      // Check stock
       const listing = await this.listingModel.findById(item.listingId).exec();
       if (!listing) throw new NotFoundException(ERROR_MESSAGES.LISTING_NOT_FOUND);
-      if (quantity > listing.stock) {
-        throw new BadRequestException(`Only ${listing.stock} left in stock`);
-      }
+      if (payload.quantity > listing.stock) throw new BadRequestException(`Only ${listing.stock} left in stock`);
 
-      const updated = await this.cartRepository.updateQuantity(itemId, quantity);
+      const updated = await this.cartRepository.updateQuantity(itemId, payload.quantity);
 
       return { success: true, message: SUCCESS_MESSAGES.CART_ITEM_UPDATED, data: updated };
     } catch (error) {
@@ -167,14 +127,12 @@ export class CartService {
     }
   }
 
-  // DELETE /customer/cart/item/:id
   async removeItem(userId: string, itemId: string) {
     try {
       const customer = await this.customerModel.findOne({ userId }).exec();
       if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
 
       const cart = await this.getOrCreateCart(customer._id.toString());
-
       const items = await this.cartRepository.findCartItems(cart._id.toString());
       const item = items.find(i => i._id.toString() === itemId);
       if (!item) throw new NotFoundException(ERROR_MESSAGES.CART_ITEM_NOT_FOUND);
@@ -190,7 +148,6 @@ export class CartService {
     }
   }
 
-  // DELETE /customer/cart/clear
   async clearCart(userId: string) {
     try {
       const customer = await this.customerModel.findOne({ userId }).exec();

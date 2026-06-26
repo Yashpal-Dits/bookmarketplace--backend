@@ -1,6 +1,7 @@
-import { Controller, Get, Patch, Delete, Post, Body, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
+import { UpdateBookCatalogDto } from './dto/update-book-catalog.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -21,7 +22,6 @@ export class AdminController {
   }
 
   // ─── Sellers ───────────────────────────────────────
-
   @Get('sellers')
   @ApiOperation({ summary: 'Get all sellers (filter by status)' })
   async getSellers(
@@ -45,7 +45,6 @@ export class AdminController {
   }
 
   // ─── Books ─────────────────────────────────────────
-
   @Get('books')
   @ApiOperation({ summary: 'Get all books (filter by status)' })
   async getBooks(
@@ -70,7 +69,7 @@ export class AdminController {
 
   @Patch('books/:id/catalog')
   @ApiOperation({ summary: 'Update book catalog details (title, author, etc)' })
-  async updateBookCatalog(@Param('id') id: string, @Body() data: any) {
+  async updateBookCatalog(@Param('id') id: string, @Body() data: UpdateBookCatalogDto) {
     return this.adminService.updateBookCatalog(id, data);
   }
 
@@ -81,7 +80,6 @@ export class AdminController {
   }
 
   // ─── Customers ─────────────────────────────────────
-  
   @Get('customers')
   @ApiOperation({ summary: 'Get all customers (filter by status)' })
   async getCustomers(

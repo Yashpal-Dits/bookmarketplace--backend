@@ -19,7 +19,7 @@ export class CategoriesController {
   @Get('categories')
   @ApiOperation({ summary: 'Get all active categories (public)' })
   async findAll() {
-    return this.categoriesService.findAll();
+    return this.categoriesService.findAllAdmin();
   }
 
   @Get('categories/:id')

@@ -30,8 +30,10 @@ export class User extends Document {
 
   @Prop()
   otpExpiresAt?: Date;
+
+  @Prop()
+  refreshToken?: string;
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
-
 UserSchema.index({ role: 1 });

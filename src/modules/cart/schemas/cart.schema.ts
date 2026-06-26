@@ -9,4 +9,3 @@ export class Cart extends Document {
 }
 
 export const CartSchema = SchemaFactory.createForClass(Cart);
-CartSchema.index({customerId: 1});

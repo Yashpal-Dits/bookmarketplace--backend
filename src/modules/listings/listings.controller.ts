@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ListingsService } from './listings.service';
+import { CreateListingDto } from './dto/create-listing.dto';
+import { UpdateListingDto } from './dto/update-listing.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
@@ -20,7 +22,7 @@ export class ListingsController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Create a listing (seller)' })
-  async create(@Body() data: any, @CurrentUser() user: JwtPayload) {
+  async create(@Body() data: CreateListingDto, @CurrentUser() user: JwtPayload) {
     return this.listingsService.create(data, user.sub);
   }
 
@@ -38,7 +40,7 @@ export class ListingsController {
   @ApiOperation({ summary: 'Update my listing (seller)' })
   async updateListing(
     @Param('id') id: string,
-    @Body() data: any,
+    @Body() data: UpdateListingDto,
     @CurrentUser() user: JwtPayload,
   ) {
     return this.listingsService.updateListing(id, data, user.sub);

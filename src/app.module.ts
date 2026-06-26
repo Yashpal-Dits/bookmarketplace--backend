@@ -20,6 +20,7 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { MongoExceptionFilter } from './common/filters/mongo-exception.filter';
 import { AdminSeeder } from './database/seeders/admin.seeder';
 import { CartModule } from './modules/cart/cart.module';
+import { OrdersModule } from './modules/orders/orders.module';
 
 @Module({
   imports: [
@@ -36,8 +37,8 @@ import { CartModule } from './modules/cart/cart.module';
     BooksModule,
     ListingsModule,
     AdminModule,
-    CartModule
-    
+    CartModule,
+    OrdersModule
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
@@ -49,6 +50,6 @@ import { CartModule } from './modules/cart/cart.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-   consumer.apply(LoggerMiddleware).forRoutes({ path: '(.*)', method: RequestMethod.ALL });
+  consumer.apply(LoggerMiddleware).forRoutes({ path: '*', method: RequestMethod.ALL });
   }
 }

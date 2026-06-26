@@ -1,6 +1,8 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { CartService } from './cart.service';
+import { AddToCartDto } from './dto/add-to-cart.dto';
+import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
@@ -22,9 +24,12 @@ export class CartController {
   @ApiOperation({ summary: 'Add item to cart' })
   async addToCart(
     @CurrentUser() user: JwtPayload,
-    @Body() data: { listingId: string; quantity: number },
+    @Body() data: AddToCartDto,
   ) {
-    return this.cartService.addToCart(user.sub, data.listingId, data.quantity || 1);
+    return this.cartService.addToCart(user.sub, {
+      listingId: data.listingId,
+      quantity: data.quantity || 1,
+    });
   }
 
   @Patch('item/:id')
@@ -32,9 +37,11 @@ export class CartController {
   async updateQuantity(
     @CurrentUser() user: JwtPayload,
     @Param('id') itemId: string,
-    @Body() data: { quantity: number },
+    @Body() data: UpdateCartItemDto,
   ) {
-    return this.cartService.updateQuantity(user.sub, itemId, data.quantity);
+    return this.cartService.updateQuantity(user.sub, itemId, {
+      quantity: data.quantity,
+    });
   }
 
   @Delete('item/:id')
