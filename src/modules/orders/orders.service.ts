@@ -25,7 +25,7 @@ export class OrdersService {
     @InjectModel(Book.name) private readonly bookModel: Model<Book>,
     @InjectModel(Seller.name) private readonly sellerModel: Model<Seller>,
     @InjectModel(Customer.name) private readonly customerModel: Model<Customer>,
-  ) {}
+  ) { }
 
   async placeOrder(userId: string, payload: PlaceOrderPayload) {
     try {
@@ -225,5 +225,94 @@ export class OrdersService {
       minPrice: prices.length > 0 ? Math.min(...prices) : null,
       totalStock,
     }).exec();
+  }
+  // ─── Cancel Order (Customer) ──────────────────────────
+  async cancelOrder(userId: string, orderId: string) {
+    try {
+      const customer = await this.customerModel.findOne({ userId }).exec();
+      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
+
+      const order = await this.ordersRepository.findOrderById(orderId);
+      if (!order) throw new NotFoundException(ERROR_MESSAGES.ORDER_NOT_FOUND);
+
+      // Check if order belongs to this customer
+      if (order.customerId.toString() !== customer._id.toString()) {
+        throw new NotFoundException(ERROR_MESSAGES.ORDER_NOT_FOUND);
+      }
+
+      // Check if order can be cancelled (only CREATED status)
+      if (order.status !== OrderStatus.CREATED) {
+        throw new BadRequestException(
+          'Order cannot be cancelled. Only orders in "CREATED" status can be cancelled.',
+        );
+      }
+
+      const session = await this.connection.startSession();
+      session.startTransaction();
+
+      try {
+        // Update order status
+        await this.connection.model('Order').findByIdAndUpdate(
+          orderId,
+          { status: OrderStatus.CANCELLED },
+          { session },
+        ).exec();
+
+        // Get order items and restore stock
+        const items = await this.ordersRepository.findOrderItems(orderId);
+
+        for (const item of items) {
+          // Update order item status
+          await this.connection.model('OrderItem').findByIdAndUpdate(
+            item._id,
+            { status: OrderStatus.CANCELLED },
+            { session },
+          ).exec();
+
+          // Restore stock to listing
+          await this.listingModel.findByIdAndUpdate(
+            item.listingId,
+            { $inc: { stock: item.quantity } },
+            { session, new: true },
+          ).exec();
+
+          // Sync book aggregates
+          if (item.bookId) {
+            const listings = await this.listingModel
+              .find({ bookId: item.bookId, isActive: true })
+              .session(session)
+              .exec();
+
+            const prices = listings.map(l => l.price);
+            const totalStock = listings.reduce((sum, l) => sum + l.stock, 0);
+
+            await this.bookModel.findByIdAndUpdate(
+              item.bookId,
+              {
+                minPrice: prices.length > 0 ? Math.min(...prices) : null,
+                totalStock,
+              },
+              { session },
+            ).exec();
+          }
+        }
+
+        await session.commitTransaction();
+
+        this.logger.log(`Order cancelled: ${orderId} by customer ${customer._id}`, 'Orders');
+
+        return { success: true, message: 'Order cancelled successfully. Stock has been restored.' };
+      } catch (error) {
+        await session.abortTransaction();
+        throw error;
+      } finally {
+        await session.endSession();
+      }
+    } catch (error) {
+      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
+      const msg = error instanceof Error ? error.message : 'Unknown';
+      this.logger.error(`Cancel order failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      throw error;
+    }
   }
 }

@@ -48,3 +48,9 @@ export interface OrderItemDetailed extends IOrderItem {
   order?: IOrder;
   customer?: any;
 }
+
+export interface CancelOrderResponse {
+  success: boolean;
+  message: string;
+}
+

@@ -10,7 +10,7 @@ import type { JwtPayload } from '../../common/interfaces/jwt-payload.interface';
 @ApiTags('Orders')
 @Controller()
 export class OrdersController {
-  constructor(private readonly ordersService: OrdersService) {}
+  constructor(private readonly ordersService: OrdersService) { }
 
   @Post('customer/orders')
   @UseGuards(JwtAuthGuard)
@@ -46,5 +46,16 @@ export class OrdersController {
     @CurrentUser() user: JwtPayload,
   ) {
     return this.ordersService.updateOrderItemStatus(id, data.status, user.sub);
+  }
+
+  @Patch('customer/orders/:id/cancel')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Cancel an order (only if status is CREATED)' })
+  async cancelOrder(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') orderId: string,
+  ) {
+    return this.ordersService.cancelOrder(user.sub, orderId);
   }
 }
