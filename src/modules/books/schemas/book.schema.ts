@@ -2,6 +2,21 @@ import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 import { BookStatus } from '../../../common/enums/book-status.enum';
 
+@Schema()
+export class BookImage {
+  @Prop()
+  filename?: string;
+
+  @Prop()
+  mimetype?: string;
+
+  @Prop({ type: Buffer, required: true })
+  data!: Buffer;
+
+  @Prop()
+  size?: number;
+}
+
 @Schema({ timestamps: true })
 export class Book extends Document {
   @Prop({ required: true, trim: true })
@@ -19,8 +34,8 @@ export class Book extends Document {
   @Prop({ required: true })
   description!: string;
 
-  @Prop({ default: '' })
-  coverImage?: string;
+  @Prop({ type: [BookImage], default: [] })
+  images?: BookImage[];
 
   @Prop({ type: Types.ObjectId, ref: 'Category' })
   category?: Types.ObjectId;

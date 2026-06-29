@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { ConfigService } from '@nestjs/config';
 import { User } from '../../modules/users/schemas/user.schema';
 import { Role } from '../../common/enums/role.enum';
 import { HashHelper } from '../../common/helpers/hash.helper';
@@ -11,11 +12,13 @@ export class AdminSeeder {
 
   constructor(
     @InjectModel(User.name) private readonly userModel: Model<User>,
+    private readonly configService: ConfigService,
   ) {}
 
   async seed(): Promise<void> {
     try {
-      const adminEmail = 'admin@bookmarketplace.com';
+      const adminEmail = this.configService.get<string>('admin.email')!;
+      const adminPassword = this.configService.get<string>('admin.password')!;
 
       const existingAdmin = await this.userModel.findOne({ email: adminEmail }).exec();
       if (existingAdmin) {
@@ -23,7 +26,7 @@ export class AdminSeeder {
         return;
       }
 
-      const hashedPassword = await HashHelper.hash('Admin@123');
+      const hashedPassword = await HashHelper.hash(adminPassword);
 
       await this.userModel.create({
         firstName: 'Admin',
@@ -33,9 +36,8 @@ export class AdminSeeder {
         role: Role.ADMIN,
       });
 
-      this.logger.log(' Admin user seeded successfully');
-      this.logger.log('   Email: admin@bookmarketplace.com');
-      this.logger.log('   Password: Admin@123');
+      this.logger.log('Admin user seeded successfully');
+      this.logger.log(`   Email: ${adminEmail}`);
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown error';
       this.logger.error(`Admin seeding failed: ${msg}`, error instanceof Error ? error.stack : undefined);

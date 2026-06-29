@@ -79,7 +79,7 @@ export class OrdersService {
             priceAtPurchase: listing.price,
             quantity: item.quantity,
             subtotal,
-            coverImage: book.coverImage || '',
+            coverImage:'',
             status: OrderStatus.CREATED,
           });
 

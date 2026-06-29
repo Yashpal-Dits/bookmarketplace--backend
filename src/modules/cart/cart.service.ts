@@ -7,7 +7,7 @@ import { Listing } from '../listings/schemas/listing.schema';
 import { Book } from '../books/schemas/book.schema';
 import { Seller } from '../sellers/schemas/seller.schema';
 import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../common/constants/messages.constant';
-import type { AddToCartPayload, UpdateCartItemPayload, CartItemResponse } from './interfaces/cart.interface';
+import type { CartItemResponse } from './interfaces/cart.interface';
 
 @Injectable()
 export class CartService {
@@ -47,9 +47,28 @@ export class CartService {
           _id: item._id.toString(),
           listingId: item.listingId.toString(),
           quantity: item.quantity,
-          listing: { price: listing.price, mrp: listing.mrp, stock: listing.stock, isActive: listing.isActive },
-          book: book ? { _id: book._id.toString(), title: book.title, author: book.author, coverImage: book.coverImage, isbn: book.isbn, category: (book as any).category } : null,
-          seller: seller ? { _id: seller._id.toString(), businessName: seller.businessName, storeLogo: seller.storeLogo } : null,
+          listing: {
+            price: listing.price,
+            mrp: listing.mrp,
+            stock: listing.stock,
+            isActive: listing.isActive,
+          },
+          book: book
+            ? {
+                _id: book._id.toString(),
+                title: book.title,
+                author: book.author,
+                isbn: book.isbn,
+                category: (book as any).category,
+              }
+            : null,
+          seller: seller
+            ? {
+                _id: seller._id.toString(),
+                businessName: seller.businessName,
+                storeLogo: seller.storeLogo,
+              }
+            : null,
         });
       }
 
@@ -62,7 +81,7 @@ export class CartService {
     }
   }
 
-  async addToCart(userId: string, payload: AddToCartPayload) {
+  async addToCart(userId: string, payload: { listingId: string; quantity: number }) {
     try {
       const customer = await this.customerModel.findOne({ userId }).exec();
       if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
@@ -77,11 +96,10 @@ export class CartService {
       const requestedTotal = (existing?.quantity || 0) + payload.quantity;
 
       if (requestedTotal > listing.stock) {
-        throw new BadRequestException(
-          existing
-            ? `Only ${listing.stock} in stock — you already have ${existing.quantity} in your cart`
-            : `Only ${listing.stock} left in stock`,
-        );
+        const msg = existing
+          ? `Only ${listing.stock} in stock — you already have ${existing.quantity} in your cart`
+          : `Only ${listing.stock} left in stock`;
+        throw new BadRequestException(msg);
       }
 
       let cartItem;
@@ -100,7 +118,7 @@ export class CartService {
     }
   }
 
-  async updateQuantity(userId: string, itemId: string, payload: UpdateCartItemPayload) {
+  async updateQuantity(userId: string, itemId: string, payload: { quantity: number }) {
     try {
       if (payload.quantity < 1) throw new BadRequestException(ERROR_MESSAGES.QUANTITY_MIN);
 
@@ -117,7 +135,6 @@ export class CartService {
       if (payload.quantity > listing.stock) throw new BadRequestException(`Only ${listing.stock} left in stock`);
 
       const updated = await this.cartRepository.updateQuantity(itemId, payload.quantity);
-
       return { success: true, message: SUCCESS_MESSAGES.CART_ITEM_UPDATED, data: updated };
     } catch (error) {
       if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
@@ -138,7 +155,6 @@ export class CartService {
       if (!item) throw new NotFoundException(ERROR_MESSAGES.CART_ITEM_NOT_FOUND);
 
       await this.cartRepository.removeCartItem(itemId);
-
       return { success: true, message: SUCCESS_MESSAGES.CART_ITEM_REMOVED };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
@@ -155,7 +171,6 @@ export class CartService {
 
       const cart = await this.getOrCreateCart(customer._id.toString());
       await this.cartRepository.clearCart(cart._id.toString());
-
       return { success: true, message: SUCCESS_MESSAGES.CART_CLEARED };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;

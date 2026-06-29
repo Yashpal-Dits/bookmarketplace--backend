@@ -26,4 +26,9 @@ export default () => ({
     pass: process.env.SMTP_PASS || '',
     from: process.env.SMTP_FROM || 'noreply@bookmarketplace.com',
   },
+    admin: {
+    email: process.env.ADMIN_EMAIL ,
+    password: process.env.ADMIN_PASSWORD ,
+  },
+
 });
