@@ -34,6 +34,17 @@ export class Book extends Document {
   @Prop({ required: true })
   description!: string;
 
+  /**
+   * URL-based cover image.
+   * This is used by frontend seller book request form.
+   */
+  @Prop({ trim: true })
+  coverImage?: string;
+
+  /**
+   * Uploaded binary images.
+   * These are served through GET /books/:id/images/:index
+   */
   @Prop({ type: [BookImage], default: [] })
   images?: BookImage[];
 
@@ -60,6 +71,7 @@ export class Book extends Document {
 }
 
 export const BookSchema = SchemaFactory.createForClass(Book);
+
 BookSchema.index({ isbn: 1 });
 BookSchema.index({ status: 1 });
 BookSchema.index({ category: 1 });

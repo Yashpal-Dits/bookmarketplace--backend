@@ -25,6 +25,9 @@ export class User extends Document {
   @Prop()
   profileImage?: string;
 
+  @Prop({ default: false })
+  emailVerified?: boolean;
+
   @Prop()
   otp?: string;
 
@@ -36,4 +39,6 @@ export class User extends Document {
 }
 
 export const UserSchema = SchemaFactory.createForClass(User);
+
 UserSchema.index({ role: 1 });
+UserSchema.index({ emailVerified: 1 });

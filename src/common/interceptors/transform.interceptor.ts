@@ -5,7 +5,7 @@ import {
   CallHandler,
 } from '@nestjs/common';
 import { Observable, map } from 'rxjs';
-import { ApiResponse } from '../interfaces/api-response.interface'
+import { ApiResponse } from '../interfaces/api-response.interface';
 
 @Injectable()
 export class TransformInterceptor<T>
@@ -20,7 +20,35 @@ export class TransformInterceptor<T>
 
     return next.handle().pipe(
       map((data) => {
-        // If data is already formatted (e.g. paginated), return as-is
+        /**
+         * Many existing services already return:
+         * {
+         *   success: true,
+         *   message: '...',
+         *   data: ...
+         * }
+         *
+         * Do not wrap those responses again.
+         */
+        if (
+          data &&
+          typeof data === 'object' &&
+          'success' in data &&
+          ('data' in data || 'message' in data)
+        ) {
+          return {
+            ...(data as any),
+            statusCode,
+          };
+        }
+
+        /**
+         * For paginated responses like:
+         * {
+         *   data: [...],
+         *   meta: {...}
+         * }
+         */
         if (data && typeof data === 'object' && 'meta' in data) {
           return {
             success: true,

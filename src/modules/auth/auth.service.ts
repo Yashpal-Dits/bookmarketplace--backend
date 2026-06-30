@@ -37,8 +37,8 @@ import type {
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  private readonly ACCESS_TOKEN_EXPIRY = 900; 
-  private readonly REFRESH_TOKEN_EXPIRY = 2592000; 
+  private readonly ACCESS_TOKEN_EXPIRY = 900;
+  private readonly REFRESH_TOKEN_EXPIRY = 2592000;
 
   constructor(
     private readonly authRepository: AuthRepository,
@@ -68,6 +68,7 @@ export class AuthService {
         password: hashedPassword,
         role: Role.CUSTOMER,
         mobileNumber: payload.mobileNumber || '',
+        emailVerified: false,
       });
 
       const customer = await this.customerModel.create({
@@ -83,14 +84,20 @@ export class AuthService {
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      await this.userModel.findByIdAndUpdate(user._id, { otp, otpExpiresAt }).exec();
+
+      await this.userModel.findByIdAndUpdate(user._id, {
+        otp,
+        otpExpiresAt,
+      }).exec();
+
       await this.emailService.sendOtpEmail(user.email, otp);
 
       const accessToken = this.generateToken(user, this.ACCESS_TOKEN_EXPIRY);
       const refreshToken = this.generateToken(user, this.REFRESH_TOKEN_EXPIRY);
+
       await this.userModel.findByIdAndUpdate(user._id, { refreshToken }).exec();
 
-      this.logger.log(`Customer registered (pending): ${user.email}`, 'Auth');
+      this.logger.log(`Customer registered pending email verification: ${user.email}`, 'Auth');
 
       return {
         success: true,
@@ -102,6 +109,7 @@ export class AuthService {
             lastName: user.lastName,
             email: user.email,
             role: user.role,
+            emailVerified: false,
           },
           customer: {
             _id: customer._id.toString(),
@@ -116,8 +124,13 @@ export class AuthService {
       };
     } catch (error) {
       if (error instanceof ConflictException) throw error;
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Customer registration failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Customer registration failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
     }
   }
@@ -141,6 +154,7 @@ export class AuthService {
         password: hashedPassword,
         role: Role.SELLER,
         mobileNumber: payload.mobileNumber,
+        emailVerified: false,
       });
 
       const seller = await this.sellerModel.create({
@@ -152,15 +166,27 @@ export class AuthService {
         status: SellerStatus.PENDING,
       });
 
+    
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+      await this.userModel.findByIdAndUpdate(user._id, {
+        otp,
+        otpExpiresAt,
+      }).exec();
+
+      await this.emailService.sendOtpEmail(user.email, otp);
+
       const accessToken = this.generateToken(user, this.ACCESS_TOKEN_EXPIRY);
       const refreshToken = this.generateToken(user, this.REFRESH_TOKEN_EXPIRY);
+
       await this.userModel.findByIdAndUpdate(user._id, { refreshToken }).exec();
 
-      this.logger.log(`Seller registered (pending): ${user.email}`, 'Auth');
+      this.logger.log(`Seller registered pending email verification: ${user.email}`, 'Auth');
 
       return {
         success: true,
-        message: 'Seller registration submitted successfully. Your account is pending admin approval.',
+        message: 'Seller registration submitted successfully. Please verify your email using the OTP sent to your inbox.',
         data: {
           user: {
             _id: user._id.toString(),
@@ -168,6 +194,7 @@ export class AuthService {
             lastName: user.lastName,
             email: user.email,
             role: user.role,
+            emailVerified: false,
           },
           seller: {
             _id: seller._id.toString(),
@@ -182,8 +209,13 @@ export class AuthService {
       };
     } catch (error) {
       if (error instanceof ConflictException) throw error;
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Seller registration failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Seller registration failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
     }
   }
@@ -200,6 +232,7 @@ export class AuthService {
 
       const accessToken = this.generateToken(user, this.ACCESS_TOKEN_EXPIRY);
       const refreshToken = this.generateToken(user, this.REFRESH_TOKEN_EXPIRY);
+
       await this.userModel.findByIdAndUpdate(user._id, { refreshToken }).exec();
 
       const data: Record<string, any> = {
@@ -210,6 +243,7 @@ export class AuthService {
           email: user.email,
           role: user.role,
           profileImage: user.profileImage,
+          emailVerified: user.emailVerified,
         },
         token: accessToken,
         refreshToken,
@@ -217,37 +251,58 @@ export class AuthService {
 
       if (user.role === Role.CUSTOMER) {
         const customer = await this.customerModel.findOne({ userId: user._id }).exec();
-        if (!customer) throw new UnauthorizedException('Customer profile not found');
+
+        if (!customer) {
+          throw new UnauthorizedException('Customer profile not found');
+        }
+
         if (customer.status === CustomerStatus.PENDING) {
           throw new UnauthorizedException('Your email is not verified yet. Please verify your email before logging in.');
         }
+
         if (customer.status === CustomerStatus.BLOCKED) {
           throw new UnauthorizedException('Your account has been blocked. Please contact support.');
         }
+
         data.customerId = customer._id.toString();
         data.status = customer.status;
       }
 
-      if (user.role === Role.SELLER) {
-        const seller = await this.sellerModel.findOne({ userId: user._id }).exec();
-        if (!seller) throw new UnauthorizedException('Seller profile not found');
-        if (seller.status === SellerStatus.PENDING) {
-          throw new UnauthorizedException('Your seller account is pending admin approval.');
-        }
-        if (seller.status === SellerStatus.REJECTED) {
-          throw new UnauthorizedException('Your seller application has been rejected.');
-        }
-        data.sellerId = seller._id.toString();
-        data.sellerStatus = seller.status;
-      }
+     if (user.role === Role.SELLER) {
+  const seller = await this.sellerModel.findOne({ userId: user._id }).exec();
+
+  if (!seller) {
+    throw new UnauthorizedException('Seller profile not found');
+  }
+
+  if (user.emailVerified === false) {
+    throw new UnauthorizedException('Your email is not verified yet. Please verify your email before logging in.');
+  }
+
+  if (seller.status === SellerStatus.REJECTED) {
+    throw new UnauthorizedException('Your seller application has been rejected.');
+  }
+
+  data.sellerId = seller._id.toString();
+  data.sellerStatus = seller.status;
+}
 
       this.logger.log(`Login successful: ${user.email}`, 'Auth');
 
-      return { success: true, message: 'Login successful', data };
+      return {
+        success: true,
+        message: 'Login successful',
+        data,
+      };
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Login failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Login failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException(ERROR_MESSAGES.INTERNAL_SERVER_ERROR);
     }
   }
@@ -257,6 +312,7 @@ export class AuthService {
   async refreshToken(payload: RefreshTokenPayload) {
     try {
       let decoded: any;
+
       try {
         decoded = this.jwtService.verify(payload.refreshToken);
       } catch {
@@ -264,13 +320,17 @@ export class AuthService {
       }
 
       const user = await this.userModel.findById(decoded.sub).exec();
+
       if (!user || user.refreshToken !== payload.refreshToken) {
         throw new UnauthorizedException('Refresh token is no longer valid. Please login again.');
       }
 
       const newAccessToken = this.generateToken(user, this.ACCESS_TOKEN_EXPIRY);
       const newRefreshToken = this.generateToken(user, this.REFRESH_TOKEN_EXPIRY);
-      await this.userModel.findByIdAndUpdate(user._id, { refreshToken: newRefreshToken }).exec();
+
+      await this.userModel.findByIdAndUpdate(user._id, {
+        refreshToken: newRefreshToken,
+      }).exec();
 
       this.logger.log(`Token refreshed for: ${user.email}`, 'Auth');
 
@@ -284,8 +344,13 @@ export class AuthService {
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Refresh token failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Refresh token failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException('Failed to refresh token.');
     }
   }
@@ -294,11 +359,21 @@ export class AuthService {
 
   async logout(userId: string) {
     try {
-      await this.userModel.findByIdAndUpdate(userId, { $unset: { refreshToken: '' } }).exec();
-      return { success: true, message: 'Logged out successfully' };
+      await this.userModel.findByIdAndUpdate(userId, {
+        $unset: { refreshToken: '' },
+      }).exec();
+
+      return {
+        success: true,
+        message: 'Logged out successfully',
+      };
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Logout failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Logout failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException('Failed to logout.');
     }
   }
@@ -312,14 +387,27 @@ export class AuthService {
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      await this.userModel.findByIdAndUpdate(user._id, { otp, otpExpiresAt }).exec();
+
+      await this.userModel.findByIdAndUpdate(user._id, {
+        otp,
+        otpExpiresAt,
+      }).exec();
+
       await this.emailService.sendOtpEmail(user.email, otp);
 
-      return { success: true, message: 'An OTP has been sent to your email.' };
+      return {
+        success: true,
+        message: 'An OTP has been sent to your email.',
+      };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Send OTP failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Send OTP failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException('Failed to send OTP.');
     }
   }
@@ -329,51 +417,102 @@ export class AuthService {
   async verifyOtp(payload: VerifyOtpPayload) {
     try {
       const user = await this.authRepository.findByEmail(payload.email);
+
       if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
+
       if (!user.otp || !user.otpExpiresAt) {
         throw new BadRequestException('No OTP found. Please request a new OTP.');
       }
+
       if (new Date() > user.otpExpiresAt) {
         throw new BadRequestException('OTP has expired. Please request a new OTP.');
       }
+
       if (user.otp !== payload.otp) {
         throw new BadRequestException('Invalid OTP. Please try again.');
       }
 
-      await this.userModel.findByIdAndUpdate(user._id, { $unset: { otp: '', otpExpiresAt: '' } }).exec();
+      await this.userModel.findByIdAndUpdate(user._id, {
+        emailVerified: true,
+        $unset: {
+          otp: '',
+          otpExpiresAt: '',
+        },
+      }).exec();
 
       if (user.role === Role.CUSTOMER) {
-        await this.customerModel.findOneAndUpdate({ userId: user._id }, { status: CustomerStatus.ACTIVE }).exec();
+        await this.customerModel.findOneAndUpdate(
+          { userId: user._id },
+          { status: CustomerStatus.ACTIVE },
+        ).exec();
       }
 
-      return { success: true, message: 'Email verified successfully! You can now login.' };
+      /**
+       * For sellers we only mark emailVerified=true on User.
+       * Seller.status remains PENDING until admin approval.
+       */
+      if (user.role === Role.SELLER) {
+        await this.sellerModel.findOneAndUpdate(
+          { userId: user._id },
+          { status: SellerStatus.PENDING },
+        ).exec();
+      }
+
+      return {
+        success: true,
+        message: user.role === Role.SELLER
+          ? 'Email verified successfully! Your seller account is now pending admin approval.'
+          : 'Email verified successfully! You can now login.',
+      };
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Verify OTP failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Verify OTP failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException('Failed to verify OTP.');
     }
   }
 
   // ----------- FORGOT PASSWORD ---------
 
-
   async forgotPassword(payload: ForgotPasswordPayload) {
     try {
       const user = await this.authRepository.findByEmail(payload.email);
+
       if (!user) {
-        return { success: true, message: 'If the email exists, a password reset OTP has been sent.' };
+        return {
+          success: true,
+          message: 'If the email exists, a password reset OTP has been sent.',
+        };
       }
 
       const otp = Math.floor(100000 + Math.random() * 900000).toString();
       const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
-      await this.userModel.findByIdAndUpdate(user._id, { otp, otpExpiresAt }).exec();
+
+      await this.userModel.findByIdAndUpdate(user._id, {
+        otp,
+        otpExpiresAt,
+      }).exec();
+
       await this.emailService.sendPasswordResetEmail(user.email, otp);
 
-      return { success: true, message: 'If the email exists, a password reset OTP has been sent.' };
+      return {
+        success: true,
+        message: 'If the email exists, a password reset OTP has been sent.',
+      };
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Forgot password failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Forgot password failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException('Failed to process request.');
     }
   }
@@ -383,28 +522,46 @@ export class AuthService {
   async resetPassword(payload: ResetPasswordPayload) {
     try {
       const user = await this.authRepository.findByEmail(payload.email);
+
       if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
+
       if (!user.otp || !user.otpExpiresAt) {
         throw new BadRequestException('No password reset request found.');
       }
+
       if (new Date() > user.otpExpiresAt) {
         throw new BadRequestException('OTP has expired.');
       }
+
       if (user.otp !== payload.otp) {
         throw new BadRequestException('Invalid OTP.');
       }
 
       const hashedPassword = await HashHelper.hash(payload.newPassword);
+
       await this.userModel.findByIdAndUpdate(user._id, {
         password: hashedPassword,
-        $unset: { otp: '', otpExpiresAt: '' },
+        $unset: {
+          otp: '',
+          otpExpiresAt: '',
+        },
       }).exec();
 
-      return { success: true, message: 'Password reset successful. You can now login.' };
+      return {
+        success: true,
+        message: 'Password reset successful. You can now login.',
+      };
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Reset password failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Reset password failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException('Failed to reset password.');
     }
   }
@@ -414,19 +571,36 @@ export class AuthService {
   async changePassword(userId: string, payload: ChangePasswordPayload) {
     try {
       const user = await this.authRepository.findByIdWithPassword(userId);
+
       if (!user) throw new NotFoundException(ERROR_MESSAGES.USER_NOT_FOUND);
 
       const isValid = await HashHelper.compare(payload.currentPassword, user.password);
-      if (!isValid) throw new BadRequestException('Current password is incorrect.');
+
+      if (!isValid) {
+        throw new BadRequestException('Current password is incorrect.');
+      }
 
       const hashedPassword = await HashHelper.hash(payload.newPassword);
-      await this.userModel.findByIdAndUpdate(userId, { password: hashedPassword }).exec();
 
-      return { success: true, message: 'Password changed successfully.' };
+      await this.userModel.findByIdAndUpdate(userId, {
+        password: hashedPassword,
+      }).exec();
+
+      return {
+        success: true,
+        message: 'Password changed successfully.',
+      };
     } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
+      if (error instanceof NotFoundException || error instanceof BadRequestException) {
+        throw error;
+      }
+
       const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Change password failed: ${msg}`, error instanceof Error ? error.stack : undefined);
+      this.logger.error(
+        `Change password failed: ${msg}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+
       throw new InternalServerErrorException('Failed to change password.');
     }
   }
@@ -439,6 +613,9 @@ export class AuthService {
       email: user.email,
       role: user.role,
     };
-    return this.jwtService.sign(payload, { expiresIn: expiresInSeconds });
+
+    return this.jwtService.sign(payload, {
+      expiresIn: expiresInSeconds,
+    });
   }
 }
