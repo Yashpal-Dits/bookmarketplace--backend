@@ -1,182 +1,297 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Types, Model } from 'mongoose';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+
 import { CartRepository } from './cart.repository';
-import { Customer } from '../customers/schemas/customer.schema';
+import { AddToCartDto } from './dto/add-to-cart.dto';
+import { UpdateCartItemDto } from './dto/update-cart-item.dto';
+import { CartResponse } from './interfaces/cart.interface';
+
 import { Listing } from '../listings/schemas/listing.schema';
 import { Book } from '../books/schemas/book.schema';
 import { Seller } from '../sellers/schemas/seller.schema';
-import { ERROR_MESSAGES, SUCCESS_MESSAGES } from '../../common/constants/messages.constant';
-import type { CartItemResponse } from './interfaces/cart.interface';
 
 @Injectable()
 export class CartService {
-  private readonly logger = new Logger(CartService.name);
-
   constructor(
     private readonly cartRepository: CartRepository,
-    @InjectModel(Customer.name) private readonly customerModel: Model<Customer>,
     @InjectModel(Listing.name) private readonly listingModel: Model<Listing>,
     @InjectModel(Book.name) private readonly bookModel: Model<Book>,
     @InjectModel(Seller.name) private readonly sellerModel: Model<Seller>,
   ) {}
 
-  private async getOrCreateCart(customerId: string) {
+  async addToCart(customerId: string, dto: AddToCartDto) {
+    const { listingId, quantity } = dto;
+
+    if (!Types.ObjectId.isValid(listingId)) {
+      throw new BadRequestException('Invalid listing id.');
+    }
+
+    const listing = await this.listingModel.findById(listingId).exec();
+
+    if (!listing) {
+      throw new NotFoundException('Listing not found.');
+    }
+
+    const requestedQuantity = quantity ?? 1;
+
+    if (!(listing as any).isActive) {
+      throw new BadRequestException('This listing is not active.');
+    }
+
+    if ((listing as any).stock < requestedQuantity) {
+      throw new BadRequestException('Requested quantity exceeds available stock.');
+    }
+
     let cart = await this.cartRepository.findCartByCustomer(customerId);
-    if (!cart) cart = await this.cartRepository.createCart(customerId);
-    return cart;
+
+    if (!cart) {
+      cart = await this.cartRepository.createCart(customerId);
+    }
+
+    const existingItem = await this.cartRepository.findCartItemByListing(
+      cart._id.toString(),
+      listingId,
+    );
+
+    if (existingItem) {
+      const nextQuantity = existingItem.quantity + requestedQuantity;
+
+      if ((listing as any).stock < nextQuantity) {
+        throw new BadRequestException('Requested quantity exceeds available stock.');
+      }
+
+      await this.cartRepository.updateQuantity(
+        existingItem._id.toString(),
+        nextQuantity,
+      );
+    } else {
+      await this.cartRepository.addCartItem(
+        cart._id.toString(),
+        listingId,
+        requestedQuantity,
+      );
+    }
+
+    const updatedCart = await this.getCart(customerId);
+
+    return {
+      success: true,
+      message: 'Item added to cart successfully.',
+      data: updatedCart,
+    };
   }
 
-  async getCart(userId: string) {
-    try {
-      const customer = await this.customerModel.findOne({ userId }).exec();
-      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
+  async getCart(customerId: string): Promise<CartResponse> {
+    const cart = await this.cartRepository.findCartByCustomer(customerId);
 
-      const cart = await this.getOrCreateCart(customer._id.toString());
-      const items = await this.cartRepository.findCartItems(cart._id.toString());
+    if (!cart) {
+      return {
+        _id: '',
+        customerId,
+        items: [],
+        totalItems: 0,
+        subtotal: 0,
+        createdAt: undefined,
+        updatedAt: undefined,
+      };
+    }
 
-      const data: CartItemResponse[] = [];
-      for (const item of items) {
+    const cartItems = await this.cartRepository.findCartItems(cart._id.toString());
+
+    const items = await Promise.all(
+      cartItems.map(async (item) => {
         const listing = await this.listingModel.findById(item.listingId).exec();
-        if (!listing) continue;
 
-        const book = await this.bookModel.findById(listing.bookId).exec();
-        const seller = await this.sellerModel.findById(listing.sellerId).exec();
+        const book =
+          listing && (listing as any).bookId
+            ? await this.bookModel.findById((listing as any).bookId).exec()
+            : null;
 
-        data.push({
-          _id: item._id.toString(),
-          listingId: item.listingId.toString(),
+        const seller =
+          listing && (listing as any).sellerId
+            ? await this.sellerModel.findById((listing as any).sellerId).exec()
+            : null;
+
+        return {
+          _id: item._id?.toString() ?? '',
           quantity: item.quantity,
-          listing: {
-            price: listing.price,
-            mrp: listing.mrp,
-            stock: listing.stock,
-            isActive: listing.isActive,
-          },
           book: book
             ? {
                 _id: book._id.toString(),
                 title: book.title,
                 author: book.author,
                 isbn: book.isbn,
+                description: (book as any).description,
+                publisher: (book as any).publisher,
+                coverImage: (book as any).coverImage,
                 category: (book as any).category,
+                status: (book as any).status,
+                rating: (book as any).rating,
+                minPrice: (book as any).minPrice,
+                mrp: (book as any).mrp,
+                totalStock: (book as any).totalStock,
+                createdAt: (book as any).createdAt,
+                updatedAt: (book as any).updatedAt,
+              }
+            : null,
+          listing: listing
+            ? {
+                _id: listing._id.toString(),
+                price: (listing as any).price,
+                originalPrice: (listing as any).originalPrice,
+                mrp: (listing as any).mrp,
+                discountPercent: (listing as any).discountPercent,
+                condition: (listing as any).condition,
+                format: (listing as any).format,
+                stock: (listing as any).stock,
+                sellerId: (listing as any).sellerId?.toString(),
+                isActive: (listing as any).isActive,
+                createdAt: (listing as any).createdAt,
+                updatedAt: (listing as any).updatedAt,
               }
             : null,
           seller: seller
             ? {
                 _id: seller._id.toString(),
-                businessName: seller.businessName,
-                storeLogo: seller.storeLogo,
+                userId: (seller as any).userId?.toString(),
+                businessName: (seller as any).businessName,
+                contactPerson: (seller as any).contactPerson,
+                email: (seller as any).email,
+                mobileNumber: (seller as any).mobileNumber,
+                status: (seller as any).status,
+                storeLogo: (seller as any).storeLogo,
+                createdAt: (seller as any).createdAt,
+                updatedAt: (seller as any).updatedAt,
               }
             : null,
-        });
+        };
+      }),
+    );
+
+    const validItems = items.filter((item) => item.listing);
+
+    const subtotal = validItems.reduce((sum, item) => {
+      const price = item.listing?.price ?? 0;
+      return sum + price * item.quantity;
+    }, 0);
+
+    const totalItems = validItems.reduce((sum, item) => sum + item.quantity, 0);
+
+    return {
+      _id: cart._id.toString(),
+      customerId: cart.customerId.toString(),
+      items: validItems,
+      totalItems,
+      subtotal,
+      createdAt: (cart as any).createdAt,
+      updatedAt: (cart as any).updatedAt,
+    };
+  }
+
+  async updateQuantity(
+    customerId: string,
+    cartItemId: string,
+    dto: UpdateCartItemDto,
+  ) {
+    if (!Types.ObjectId.isValid(cartItemId)) {
+      throw new BadRequestException('Invalid cart item id.');
+    }
+
+    const cart = await this.cartRepository.findCartByCustomer(customerId);
+
+    if (!cart) {
+      throw new NotFoundException('Cart not found.');
+    }
+
+    const cartItems = await this.cartRepository.findCartItems(cart._id.toString());
+
+    const item = cartItems.find((cartItem) => cartItem._id?.toString() === cartItemId);
+
+    if (!item) {
+      throw new NotFoundException('Cart item not found.');
+    }
+
+    const listing = await this.listingModel.findById(item.listingId).exec();
+
+    if (!listing) {
+      throw new NotFoundException('Listing not found.');
+    }
+
+    if (dto.quantity <= 0) {
+      await this.cartRepository.removeCartItem(cartItemId);
+    } else {
+      if ((listing as any).stock < dto.quantity) {
+        throw new BadRequestException('Requested quantity exceeds available stock.');
       }
 
-      return { success: true, message: 'Cart fetched successfully', data };
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Get cart failed: ${msg}`, error instanceof Error ? error.stack : undefined);
-      throw error;
+      await this.cartRepository.updateQuantity(cartItemId, dto.quantity);
     }
+
+    const updatedCart = await this.getCart(customerId);
+
+    return {
+      success: true,
+      message: 'Cart updated successfully.',
+      data: updatedCart,
+    };
   }
 
-  async addToCart(userId: string, payload: { listingId: string; quantity: number }) {
-    try {
-      const customer = await this.customerModel.findOne({ userId }).exec();
-      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
-
-      const listing = await this.listingModel.findById(payload.listingId).exec();
-      if (!listing) throw new NotFoundException(ERROR_MESSAGES.LISTING_NOT_FOUND);
-      if (!listing.isActive) throw new BadRequestException(ERROR_MESSAGES.LISTING_NOT_ACTIVE);
-      if (listing.stock <= 0) throw new BadRequestException(ERROR_MESSAGES.LISTING_OUT_OF_STOCK);
-
-      const cart = await this.getOrCreateCart(customer._id.toString());
-      const existing = await this.cartRepository.findCartItemByListing(cart._id.toString(), payload.listingId);
-      const requestedTotal = (existing?.quantity || 0) + payload.quantity;
-
-      if (requestedTotal > listing.stock) {
-        const msg = existing
-          ? `Only ${listing.stock} in stock — you already have ${existing.quantity} in your cart`
-          : `Only ${listing.stock} left in stock`;
-        throw new BadRequestException(msg);
-      }
-
-      let cartItem;
-      if (existing) {
-        cartItem = await this.cartRepository.updateQuantity(existing._id.toString(), requestedTotal);
-      } else {
-        cartItem = await this.cartRepository.addCartItem(cart._id.toString(), payload.listingId, payload.quantity);
-      }
-
-      return { success: true, message: SUCCESS_MESSAGES.CART_ITEM_ADDED, data: cartItem };
-    } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
-      const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Add to cart failed: ${msg}`, error instanceof Error ? error.stack : undefined);
-      throw error;
+  async removeItem(customerId: string, cartItemId: string) {
+    if (!Types.ObjectId.isValid(cartItemId)) {
+      throw new BadRequestException('Invalid cart item id.');
     }
+
+    const cart = await this.cartRepository.findCartByCustomer(customerId);
+
+    if (!cart) {
+      throw new NotFoundException('Cart not found.');
+    }
+
+    const cartItems = await this.cartRepository.findCartItems(cart._id.toString());
+
+    const item = cartItems.find((cartItem) => cartItem._id?.toString() === cartItemId);
+
+    if (!item) {
+      throw new NotFoundException('Cart item not found.');
+    }
+
+    await this.cartRepository.removeCartItem(cartItemId);
+
+    const updatedCart = await this.getCart(customerId);
+
+    return {
+      success: true,
+      message: 'Item removed from cart successfully.',
+      data: updatedCart,
+    };
   }
 
-  async updateQuantity(userId: string, itemId: string, payload: { quantity: number }) {
-    try {
-      if (payload.quantity < 1) throw new BadRequestException(ERROR_MESSAGES.QUANTITY_MIN);
+  async clearCart(customerId: string) {
+    const cart = await this.cartRepository.findCartByCustomer(customerId);
 
-      const customer = await this.customerModel.findOne({ userId }).exec();
-      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
-
-      const cart = await this.getOrCreateCart(customer._id.toString());
-      const items = await this.cartRepository.findCartItems(cart._id.toString());
-      const item = items.find(i => i._id.toString() === itemId);
-      if (!item) throw new NotFoundException(ERROR_MESSAGES.CART_ITEM_NOT_FOUND);
-
-      const listing = await this.listingModel.findById(item.listingId).exec();
-      if (!listing) throw new NotFoundException(ERROR_MESSAGES.LISTING_NOT_FOUND);
-      if (payload.quantity > listing.stock) throw new BadRequestException(`Only ${listing.stock} left in stock`);
-
-      const updated = await this.cartRepository.updateQuantity(itemId, payload.quantity);
-      return { success: true, message: SUCCESS_MESSAGES.CART_ITEM_UPDATED, data: updated };
-    } catch (error) {
-      if (error instanceof NotFoundException || error instanceof BadRequestException) throw error;
-      const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Update quantity failed: ${msg}`, error instanceof Error ? error.stack : undefined);
-      throw error;
+    if (!cart) {
+      return {
+        success: true,
+        message: 'Cart cleared successfully.',
+        data: {
+          _id: '',
+          customerId,
+          items: [],
+          totalItems: 0,
+          subtotal: 0,
+          createdAt: undefined,
+          updatedAt: undefined,
+        },
+      };
     }
-  }
 
-  async removeItem(userId: string, itemId: string) {
-    try {
-      const customer = await this.customerModel.findOne({ userId }).exec();
-      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
+    await this.cartRepository.clearCart(cart._id.toString());
 
-      const cart = await this.getOrCreateCart(customer._id.toString());
-      const items = await this.cartRepository.findCartItems(cart._id.toString());
-      const item = items.find(i => i._id.toString() === itemId);
-      if (!item) throw new NotFoundException(ERROR_MESSAGES.CART_ITEM_NOT_FOUND);
-
-      await this.cartRepository.removeCartItem(itemId);
-      return { success: true, message: SUCCESS_MESSAGES.CART_ITEM_REMOVED };
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Remove item failed: ${msg}`, error instanceof Error ? error.stack : undefined);
-      throw error;
-    }
-  }
-
-  async clearCart(userId: string) {
-    try {
-      const customer = await this.customerModel.findOne({ userId }).exec();
-      if (!customer) throw new NotFoundException(ERROR_MESSAGES.CUSTOMER_NOT_FOUND);
-
-      const cart = await this.getOrCreateCart(customer._id.toString());
-      await this.cartRepository.clearCart(cart._id.toString());
-      return { success: true, message: SUCCESS_MESSAGES.CART_CLEARED };
-    } catch (error) {
-      if (error instanceof NotFoundException) throw error;
-      const msg = error instanceof Error ? error.message : 'Unknown';
-      this.logger.error(`Clear cart failed: ${msg}`, error instanceof Error ? error.stack : undefined);
-      throw error;
-    }
+    return {
+      success: true,
+      message: 'Cart cleared successfully.',
+      data: await this.getCart(customerId),
+    };
   }
 }

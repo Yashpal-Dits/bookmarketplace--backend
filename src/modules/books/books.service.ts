@@ -3,11 +3,12 @@ import {
   NotFoundException,
   ConflictException,
   ForbiddenException,
-  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { existsSync, readFileSync, unlinkSync } from 'fs';
+import { basename, join } from 'path';
 import { BooksRepository } from './books.repository';
 import { Book } from './schemas/book.schema';
 import { User } from '../users/schemas/user.schema';
@@ -38,7 +39,18 @@ export class BooksService {
     return this.sellerModel.findById(objectId).exec();
   }
 
-  async create(data: any, userId: string) {
+  private getMimeTypeFromFilename(filename: string): string {
+    const lower = filename.toLowerCase();
+
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.webp')) return 'image/webp';
+    if (lower.endsWith('.gif')) return 'image/gif';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+
+    return 'application/octet-stream';
+  }
+
+  async create(data: any, userId: string, file?: Express.Multer.File) {
     try {
       const seller = await this.findSellerFromAuthId(userId);
 
@@ -57,30 +69,31 @@ export class BooksService {
         throw new ConflictException(ERROR_MESSAGES.ISBN_ALREADY_EXISTS);
       }
 
+      const coverImagePath = file
+        ? `/uploads/books/${file.filename}`
+        : String(data.coverImage || '').trim();
+
       const payload: Record<string, any> = {
         isbn,
         title: String(data.title || '').trim(),
         author: String(data.author || '').trim(),
         publisher: String(data.publisher || '').trim(),
         description: String(data.description || '').trim(),
-        coverImage: String(data.coverImage || '').trim(),
-        createdBySellerId: userId,
+        coverImage: coverImagePath,
+
+        /**
+         * Store userId here because image permission checks compare with JWT user.sub.
+         */
+        createdBySellerId: new Types.ObjectId(userId),
       };
 
-      /**
-       * category must be a valid Mongo ObjectId.
-       * If frontend sends normal text, ignore it for now.
-       */
       if (data.category && Types.ObjectId.isValid(data.category)) {
         payload.category = new Types.ObjectId(data.category);
       }
 
       const book = await this.booksRepository.create(payload);
 
-      this.logger.log(
-        `Book requested: ${book.title} by seller ${seller._id}`,
-        'Books',
-      );
+      this.logger.log(`Book requested: ${book.title} by seller ${(seller as any)._id}`, 'Books');
 
       return {
         success: true,
@@ -213,36 +226,35 @@ export class BooksService {
 
       if (book.createdBySellerId?.toString() !== userId) {
         const user = await this.userModel.findById(userId).exec();
+
         if (user?.role !== Role.ADMIN) {
           throw new ForbiddenException(ERROR_MESSAGES.FORBIDDEN);
         }
       }
 
-      const imageData = {
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        data: file.buffer,
-        size: file.size,
-      };
+      const coverImagePath = `/uploads/books/${file.filename}`;
 
       const updated = await this.bookModel
         .findByIdAndUpdate(
           bookId,
-          { $push: { images: imageData } },
+          {
+            coverImage: coverImagePath,
+          },
           { new: true },
         )
         .exec();
 
-      this.logger.log(`Image uploaded for book: ${book.title}`, 'Books');
+      this.logger.log(`Cover image uploaded for book: ${book.title}`, 'Books');
 
       return {
         success: true,
-        message: 'Book image uploaded successfully',
+        message: 'Book cover image uploaded successfully',
         data: {
           bookId,
-          imageCount: (updated as any)?.images?.length || 0,
-          filename: file.originalname,
+          coverImage: coverImagePath,
+          filename: file.filename,
           size: file.size,
+          book: updated,
         },
       };
     } catch (error) {
@@ -268,22 +280,45 @@ export class BooksService {
         throw new NotFoundException(ERROR_MESSAGES.BOOK_NOT_FOUND);
       }
 
+      /**
+       * Legacy support: old MongoDB binary images.
+       */
       const images = (book as any).images || [];
 
-      if (images.length === 0) {
+      if (images.length > 0) {
+        if (imageIndex >= images.length) {
+          throw new NotFoundException('Image not found at given index');
+        }
+
+        const image = images[imageIndex];
+
+        return {
+          data: image.data,
+          mimetype: image.mimetype || 'image/jpeg',
+          filename: image.filename || 'image',
+        };
+      }
+
+      /**
+       * New support: disk-stored coverImage path.
+       */
+      const coverImage = (book as any).coverImage as string | undefined;
+
+      if (!coverImage) {
         throw new NotFoundException('No images found for this book');
       }
 
-      if (imageIndex >= images.length) {
-        throw new NotFoundException('Image not found at given index');
+      const relativePath = coverImage.startsWith('/') ? coverImage.slice(1) : coverImage;
+      const filePath = join(process.cwd(), relativePath);
+
+      if (!existsSync(filePath)) {
+        throw new NotFoundException('Image file not found on server');
       }
 
-      const image = images[imageIndex];
-
       return {
-        data: image.data,
-        mimetype: image.mimetype || 'image/jpeg',
-        filename: image.filename || 'image',
+        data: readFileSync(filePath),
+        mimetype: this.getMimeTypeFromFilename(filePath),
+        filename: basename(filePath),
       };
     } catch (error) {
       if (error instanceof NotFoundException) throw error;
@@ -308,26 +343,59 @@ export class BooksService {
 
       if (book.createdBySellerId?.toString() !== userId) {
         const user = await this.userModel.findById(userId).exec();
+
         if (user?.role !== Role.ADMIN) {
           throw new ForbiddenException(ERROR_MESSAGES.FORBIDDEN);
         }
       }
 
+      /**
+       * Legacy support: old MongoDB binary images.
+       */
       const images = (book as any).images || [];
 
-      if (imageIndex >= images.length) {
-        throw new NotFoundException('Image not found');
+      if (images.length > 0) {
+        if (imageIndex >= images.length) {
+          throw new NotFoundException('Image not found');
+        }
+
+        const imageId = images[imageIndex]._id;
+
+        await this.bookModel
+          .findByIdAndUpdate(bookId, {
+            $pull: { images: { _id: imageId } },
+          })
+          .exec();
+
+        return {
+          success: true,
+          message: 'Book image deleted successfully',
+        };
       }
 
-      const imageId = images[imageIndex]._id;
+      /**
+       * New support: disk-stored coverImage path.
+       */
+      const coverImage = (book as any).coverImage as string | undefined;
+
+      if (!coverImage) {
+        throw new NotFoundException('No image found');
+      }
+
+      const relativePath = coverImage.startsWith('/') ? coverImage.slice(1) : coverImage;
+      const filePath = join(process.cwd(), relativePath);
+
+      if (existsSync(filePath)) {
+        unlinkSync(filePath);
+      }
 
       await this.bookModel
         .findByIdAndUpdate(bookId, {
-          $pull: { images: { _id: imageId } },
+          $unset: { coverImage: '' },
         })
         .exec();
 
-      this.logger.log(`Image deleted from book: ${book.title}`, 'Books');
+      this.logger.log(`Cover image deleted from book: ${book.title}`, 'Books');
 
       return {
         success: true,

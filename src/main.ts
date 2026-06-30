@@ -1,3 +1,4 @@
+import { join } from 'path';
 import { AppModule } from './app.module';
 import { setupSwagger } from './config/swagger.config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -8,6 +9,8 @@ import { LoggerService } from './common/logger/logger.service';
 
 async function bootstrap() {
   const NestFactory = (await import('@nestjs/core')).NestFactory;
+  const express = await import('express');
+
   const app = await NestFactory.create(AppModule);
 
   const logger = app.get(LoggerService);
@@ -19,9 +22,10 @@ async function bootstrap() {
     credentials: true,
   });
 
+  app.use('/uploads', express.default.static(join(process.cwd(), 'uploads')));
+
   app.setGlobalPrefix('api/v1');
 
-  // Use ONLY one unified exception filter
   app.useGlobalFilters(app.get(HttpExceptionFilter));
 
   app.useGlobalInterceptors(
@@ -37,6 +41,7 @@ async function bootstrap() {
 
   logger.log(`Application is running on: http://localhost:${port}`, 'Bootstrap');
   logger.log(`Swagger docs: http://localhost:${port}/api/docs`, 'Bootstrap');
+  logger.log(`Uploads served from: http://localhost:${port}/uploads`, 'Bootstrap');
 }
 
 bootstrap();
